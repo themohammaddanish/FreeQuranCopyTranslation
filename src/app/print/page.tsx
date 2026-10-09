@@ -1,5 +1,12 @@
 import type { Chapter, Language, TranslationLanguage, Verse } from "@/lib/quran-types";
-import { getTranslation } from "@/lib/quran-types";
+import {
+  coreLanguages,
+  getTranslation,
+  isLanguage,
+  isTranslationLanguage,
+  languageLabels,
+  translationNames,
+} from "@/lib/quran-types";
 import { getAllVerses, getChapters } from "@/lib/quran";
 import PrintActions from "./print-actions";
 
@@ -12,31 +19,10 @@ type PrintPageProps = {
   }>;
 };
 
-const languageLabels: Record<Language, string> = {
-  ar: "Arabic",
-  en: "English",
-  ne: "Nepali",
-  ur: "Urdu",
-};
-
-const translationCredits: Record<TranslationLanguage, string> = {
-  en: "Saheeh International",
-  ne: "Ahl Al-Hadith Central Society of Nepal",
-  ur: "Muhammad Junagarhi",
-};
-
-const allLanguages: Language[] = ["ar", "en", "ne", "ur"];
+const allLanguages: Language[] = coreLanguages;
 
 function isPrintMode(value: string | undefined): value is PrintMode {
   return value === "single" || value === "paired" || value === "all";
-}
-
-function isLanguage(value: string | undefined): value is Language {
-  return value === "ar" || value === "en" || value === "ne" || value === "ur";
-}
-
-function isTranslationLanguage(value: string | undefined): value is TranslationLanguage {
-  return value === "en" || value === "ne" || value === "ur";
 }
 
 function getVerseText(verse: Verse, language: Language): string {
@@ -79,7 +65,7 @@ function PrintVerse({
             className={`print-language print-language-${language}`}
             key={language}
             lang={language}
-            dir={language === "ar" || language === "ur" ? "rtl" : "ltr"}
+            dir={language === "ar" || language === "ur" || language === "fa" ? "rtl" : "ltr"}
           >
             {showLanguageLabels && (
               <span className="print-language-label">{languageLabels[language]}</span>
@@ -151,12 +137,18 @@ export default async function PrintQuranPage({ searchParams }: PrintPageProps) {
     languages = allLanguages;
   }
 
-  const [chapters, verses] = await Promise.all([getChapters(), getAllVerses()]);
+  const selectedTranslations = languages.filter(
+    (language): language is TranslationLanguage => language !== "ar",
+  );
+  const [chapters, verses] = await Promise.all([
+    getChapters(),
+    getAllVerses(selectedTranslations),
+  ]);
   const versesByChapter = groupVersesByChapter(verses);
   const title = getPrintTitle(params.mode, languages);
-  const credits = languages
-    .filter((language): language is TranslationLanguage => language !== "ar")
-    .map((language) => `${languageLabels[language]}: ${translationCredits[language]}`);
+  const credits = selectedTranslations.map(
+    (language) => `${languageLabels[language]}: ${translationNames[language]}`,
+  );
 
   return (
     <main className="print-shell">

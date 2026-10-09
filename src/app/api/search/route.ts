@@ -1,16 +1,16 @@
-import { getTranslationResourceId } from "@/lib/quran-types";
+import {
+  getTranslationResourceId,
+  isLanguage,
+  translationLanguages,
+} from "@/lib/quran-types";
 import type { Language, VerseSearchResponse, VerseSearchResult } from "@/lib/quran-types";
 
 const QURAN_API_URL = "https://api.quran.com/api/v4";
-const languages: Language[] = ["ar", "en", "ne", "ur"];
+const languages: Language[] = ["ar", ...translationLanguages];
 const PAGE_SIZE = 20;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isLanguage(value: string | null): value is Language {
-  return value !== null && languages.some((language) => language === value);
 }
 
 function cleanTranslationText(text: string): string {
@@ -27,8 +27,8 @@ export async function GET(request: Request) {
   if (!query || query.length > 100) {
     return Response.json({ error: "Enter a search term between 1 and 100 characters." }, { status: 400 });
   }
-  if (!isLanguage(language)) {
-    return Response.json({ error: "Choose Arabic, English, Nepali, or Urdu to search." }, { status: 400 });
+  if (language === null || !isLanguage(language) || !languages.includes(language)) {
+    return Response.json({ error: "Choose a supported Quran language to search." }, { status: 400 });
   }
   if (!Number.isInteger(page) || page < 0 || page > 1000) {
     return Response.json({ error: "The search results page is invalid." }, { status: 400 });

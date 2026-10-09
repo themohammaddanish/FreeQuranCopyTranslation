@@ -1,18 +1,32 @@
 import type { Chapter, Verse } from "@/lib/quran-types";
+import {
+  getTranslationResourceId,
+  isTranslationLanguage,
+} from "@/lib/quran-types";
+import type { TranslationLanguage } from "@/lib/quran-types";
 
 const QURAN_API_URL = "https://api.quran.com/api/v4";
-const TRANSLATION_IDS: number[] = [20, 54, 108];
+const DEFAULT_TRANSLATIONS: TranslationLanguage[] = ["en", "ne", "ur"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function getTranslationResourceId(value: unknown): number | null {
+function getTranslationResourceIdFromPayload(value: unknown): number | null {
   return isRecord(value) && typeof value.resource_id === "number" ? value.resource_id : null;
 }
 
 function cleanTranslationText(text: string): string {
   return text.replace(/<[^>]*>/g, "");
+}
+
+export function parseTranslationLanguages(value: string | null): TranslationLanguage[] | null {
+  if (value === null) return DEFAULT_TRANSLATIONS;
+  if (value === "") return [];
+
+  const languages = value.split(",");
+  if (!languages.every(isTranslationLanguage)) return null;
+  return [...new Set(languages)];
 }
 
 export async function getChapters(): Promise<Chapter[]> {
@@ -52,13 +66,14 @@ export async function getChapters(): Promise<Chapter[]> {
   });
 }
 
-async function getVerses(path: string): Promise<Verse[]> {
+async function getVerses(path: string, languages: TranslationLanguage[]): Promise<Verse[]> {
+  const translationIds = languages.map(getTranslationResourceId);
   const query = new URLSearchParams({
     language: "en",
-    translations: TRANSLATION_IDS.join(","),
     fields: "text_uthmani",
     per_page: "300",
   });
+  if (translationIds.length > 0) query.set("translations", translationIds.join(","));
   const response = await fetch(`${QURAN_API_URL}${path}?${query.toString()}`, {
     next: { revalidate: 86_400 },
   });
@@ -79,23 +94,25 @@ async function getVerses(path: string): Promise<Verse[]> {
       typeof verse.verse_number !== "number" ||
       typeof verse.page_number !== "number" ||
       typeof verse.text_uthmani !== "string" ||
-      !Array.isArray(verse.translations)
+      (translationIds.length > 0 && !Array.isArray(verse.translations))
     ) {
       throw new Error(`Quran.com returned invalid verse data at position ${index + 1}.`);
     }
 
-    const translations = verse.translations.flatMap((translation) => {
+    const verseTranslations = Array.isArray(verse.translations) ? verse.translations : [];
+    const translations = verseTranslations.flatMap((translation) => {
       if (
         !isRecord(translation) ||
-        typeof translation.resource_id !== "number" ||
-        typeof translation.text !== "string" ||
-        !TRANSLATION_IDS.includes(translation.resource_id)
+        typeof translation.text !== "string"
       ) {
         return [];
       }
 
+      const resourceId = getTranslationResourceIdFromPayload(translation);
+      if (resourceId === null || !translationIds.includes(resourceId)) return [];
+
       return [{
-        resource_id: translation.resource_id,
+        resource_id: resourceId,
         text: cleanTranslationText(translation.text),
       }];
     });
@@ -110,22 +127,30 @@ async function getVerses(path: string): Promise<Verse[]> {
   });
 }
 
-export async function getChapterVerses(chapterId: number): Promise<Verse[]> {
-  return getVerses(`/verses/by_chapter/${chapterId}`);
+export async function getChapterVerses(
+  chapterId: number,
+  languages: TranslationLanguage[] = DEFAULT_TRANSLATIONS,
+): Promise<Verse[]> {
+  return getVerses(`/verses/by_chapter/${chapterId}`, languages);
 }
 
-export async function getPageVerses(pageNumber: number): Promise<Verse[]> {
-  return getVerses(`/verses/by_page/${pageNumber}`);
+export async function getPageVerses(
+  pageNumber: number,
+  languages: TranslationLanguage[] = DEFAULT_TRANSLATIONS,
+): Promise<Verse[]> {
+  return getVerses(`/verses/by_page/${pageNumber}`, languages);
 }
 
-export async function getAllVerses(): Promise<Verse[]> {
+export async function getAllVerses(languages: TranslationLanguage[]): Promise<Verse[]> {
   const chapters = await getChapters();
   const verses: Verse[] = [];
   const batchSize = 8;
 
   for (let index = 0; index < chapters.length; index += batchSize) {
     const batch = chapters.slice(index, index + batchSize);
-    const batchVerses = await Promise.all(batch.map((chapter) => getChapterVerses(chapter.id)));
+    const batchVerses = await Promise.all(
+      batch.map((chapter) => getChapterVerses(chapter.id, languages)),
+    );
     batch.forEach((chapter, batchIndex) => {
       if (batchVerses[batchIndex].length !== chapter.verses_count) {
         throw new Error(`Quran.com returned an incomplete verse list for chapter ${chapter.id}.`);

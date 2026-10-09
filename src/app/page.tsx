@@ -10,6 +10,14 @@ import type {
   Verse,
   VerseSearchResponse,
 } from "@/lib/quran-types";
+import {
+  coreLanguages,
+  isLanguage,
+  isTranslationLanguage,
+  languageLabels,
+  translationLanguages,
+  translationNames,
+} from "@/lib/quran-types";
 import { readingGuideItems, readingGuideSource } from "@/lib/reading-guide";
 
 type ReadingMode = "single" | "paired" | "all";
@@ -19,21 +27,7 @@ type TextSize = "small" | "medium" | "large";
 type LineSpacing = "standard" | "spacious";
 const TOTAL_MUSHAF_PAGES = 604;
 
-const languageLabels: Record<Language, string> = {
-  ar: "Arabic",
-  en: "English",
-  ne: "Nepali",
-  ur: "Urdu",
-};
-
-const translatedNames: Record<TranslationLanguage, string> = {
-  en: "Saheeh International",
-  ne: "Ahl Al-Hadith Central Society of Nepal",
-  ur: "Muhammad Junagarhi",
-};
-
-const translationLanguages: TranslationLanguage[] = ["en", "ne", "ur"];
-const allLanguages: Language[] = ["ar", "en", "ne", "ur"];
+const allLanguages: Language[] = ["ar", ...translationLanguages];
 const PREFERENCES_KEY = "free-quran-reader-preferences-v1";
 
 type ReaderPreferences = {
@@ -46,14 +40,6 @@ type ReaderPreferences = {
   textSize: TextSize;
   lineSpacing: LineSpacing;
 };
-
-function isLanguage(value: string): value is Language {
-  return Object.hasOwn(languageLabels, value);
-}
-
-function isTranslationLanguage(value: string): value is TranslationLanguage {
-  return translationLanguages.some((language) => language === value);
-}
 
 function isReadingMode(value: unknown): value is ReadingMode {
   return value === "single" || value === "paired" || value === "all";
@@ -170,6 +156,9 @@ export default function Home() {
   const [showPreferenceSetup, setShowPreferenceSetup] = useState(false);
   const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState("");
+  const [chapterReferenceInput, setChapterReferenceInput] = useState("");
+  const [verseReferenceInput, setVerseReferenceInput] = useState("");
+  const [verseReferenceError, setVerseReferenceError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [activeSearchQuery, setActiveSearchQuery] = useState("");
   const [searchLanguage, setSearchLanguage] = useState<Language>("en");
@@ -285,9 +274,15 @@ export default function Home() {
       setIsLoadingVerses(true);
       setVerseError(null);
       try {
+        const translations = mode === "all"
+          ? coreLanguages.filter((language): language is TranslationLanguage => language !== "ar")
+          : mode === "single"
+            ? singleLanguage === "ar" ? [] : [singleLanguage]
+            : [translationLanguage];
+        const translationQuery = `?translations=${translations.join(",")}`;
         const verseUrl = pageMode
-          ? `/api/pages/${pageNumber}/verses`
-          : `/api/chapters/${chapterId}/verses`;
+          ? `/api/pages/${pageNumber}/verses${translationQuery}`
+          : `/api/chapters/${chapterId}/verses${translationQuery}`;
         const response = await fetch(verseUrl, {
           signal: controller.signal,
         });
@@ -308,7 +303,15 @@ export default function Home() {
 
     void loadVerses();
     return () => controller.abort();
-  }, [chapterId, pageMode, pageNumber, verseRequestId]);
+  }, [
+    chapterId,
+    mode,
+    pageMode,
+    pageNumber,
+    singleLanguage,
+    translationLanguage,
+    verseRequestId,
+  ]);
 
   const chapter = chapters.find((item) => item.id === chapterId);
   const visibleChapterId =
@@ -327,7 +330,7 @@ export default function Home() {
       : `Verses ${firstVerseKey}–${lastVerseKey}`;
   })();
   const visibleLanguages = useMemo<Language[]>(() => {
-    if (mode === "all") return allLanguages;
+    if (mode === "all") return coreLanguages;
     if (mode === "single") return [singleLanguage];
     return ["ar", translationLanguage];
   }, [mode, singleLanguage, translationLanguage]);
@@ -516,6 +519,32 @@ export default function Home() {
       setPendingVerseKey(targetVerseKey);
       setHighlightedVerseKey(null);
     }
+  }
+
+  function submitVerseReference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const chapterNumber = Number(chapterReferenceInput);
+    const verseNumber = Number(verseReferenceInput);
+    if (
+      !chapterReferenceInput.trim() ||
+      !verseReferenceInput.trim() ||
+      !Number.isInteger(chapterNumber) ||
+      !Number.isInteger(verseNumber)
+    ) {
+      setVerseReferenceError("Enter both a chapter number and a verse number.");
+      return;
+    }
+
+    const selectedChapter = chapters.find((item) => item.id === chapterNumber);
+    if (!selectedChapter || verseNumber < 1 || verseNumber > selectedChapter.verses_count) {
+      setVerseReferenceError("That chapter or verse number does not exist. Check the numbers and try again.");
+      return;
+    }
+
+    setVerseReferenceError(null);
+    setChapterReferenceInput(String(chapterNumber));
+    setVerseReferenceInput(String(verseNumber));
+    changeChapter(chapterNumber, `${chapterNumber}:${verseNumber}`);
   }
 
   function openPdfDialog() {
@@ -768,7 +797,8 @@ export default function Home() {
         <p className="eyebrow">QURAN READER</p>
         <h1>Read and explore at your own pace.</h1>
         <p className="intro-copy">
-          Choose Arabic or a translation in English, Nepali, or Urdu. No prior background is needed.
+          Read Arabic or choose from 13 available translations, including English, Nepali, Urdu, Spanish,
+          French, Indonesian, Bengali, Turkish, Persian, Russian, German, Portuguese, and Chinese.
         </p>
       </section>
 
@@ -835,6 +865,52 @@ export default function Home() {
               ))}
             </datalist>
           </div>
+          <form className="verse-reference-search" onSubmit={submitVerseReference}>
+            <span className="verse-reference-title">GO TO VERSE</span>
+            <div className="verse-reference-controls">
+              <label className="verse-reference-field">
+                <span>CHAPTER</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={chapterReferenceInput}
+                  placeholder="2"
+                  aria-label="Chapter number"
+                  aria-invalid={Boolean(verseReferenceError)}
+                  aria-describedby={verseReferenceError ? "verse-reference-error" : undefined}
+                  onChange={(event) => {
+                    setChapterReferenceInput(event.target.value);
+                    setVerseReferenceError(null);
+                  }}
+                />
+              </label>
+              <span className="verse-reference-separator" aria-hidden="true">:</span>
+              <label className="verse-reference-field">
+                <span>VERSE</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={verseReferenceInput}
+                  placeholder="10"
+                  aria-label="Verse number"
+                  aria-invalid={Boolean(verseReferenceError)}
+                  aria-describedby={verseReferenceError ? "verse-reference-error" : undefined}
+                  onChange={(event) => {
+                    setVerseReferenceInput(event.target.value);
+                    setVerseReferenceError(null);
+                  }}
+                />
+              </label>
+              <button type="submit" disabled={isLoadingChapters || chapters.length === 0}>
+                Go
+              </button>
+            </div>
+            {verseReferenceError && (
+              <span className="verse-reference-message" id="verse-reference-error" role="alert">
+                {verseReferenceError}
+              </span>
+            )}
+          </form>
           {!pageMode && (
             <div className="chapter-navigation" aria-label="Chapter navigation">
               <button
@@ -871,7 +947,7 @@ export default function Home() {
         <div className="chapter-heading" id={pageMode ? "mushaf-page-heading" : undefined}>
           <div>
             <p className="eyebrow">
-              {pageMode ? `MUSHAF PAGE ${pageNumber} OF ${TOTAL_MUSHAF_PAGES}` : `CHAPTER ${chapterId}`}
+              {pageMode ? `QURAN PAGE ${pageNumber} OF ${TOTAL_MUSHAF_PAGES}` : `CHAPTER ${chapterId}`}
             </p>
             <h2>{visibleChapter?.translated_name.name ?? "The Quran"}</h2>
             <p className="chapter-meta">
@@ -922,7 +998,7 @@ export default function Home() {
                 setPageMode(true);
               }}
             >
-              Mushaf pages
+              Quran pages
             </button>
           </div>
           <div className="mode-switch" role="group" aria-label="Reading layout">
@@ -1090,7 +1166,7 @@ export default function Home() {
           <p className="search-attribution">
             {searchLanguage === "ar"
               ? "Searching the Arabic Quran text."
-              : `Translation source: ${translatedNames[searchLanguage]}.`}
+              : `Translation source: ${translationNames[searchLanguage]}.`}
           </p>
 
           {(isSearching || searchError || activeSearchQuery) && (
@@ -1139,7 +1215,7 @@ export default function Home() {
                             <p
                               className={`search-result-text search-result-${searchLanguage}`}
                               lang={searchLanguage}
-                              dir={searchLanguage === "ur" ? "rtl" : "ltr"}
+                              dir={searchLanguage === "ur" || searchLanguage === "fa" ? "rtl" : "ltr"}
                             >
                               {result.translation_text}
                             </p>
@@ -1186,7 +1262,7 @@ export default function Home() {
                   className={`book-language book-language-${language}`}
                   key={language}
                   lang={language}
-                  dir={language === "ar" || language === "ur" ? "rtl" : "ltr"}
+                  dir={language === "ar" || language === "ur" || language === "fa" ? "rtl" : "ltr"}
                   aria-label={languageLabels[language]}
                 >
                   {(mode === "all" || mode === "paired") && (
@@ -1242,7 +1318,7 @@ export default function Home() {
                         className={`verse-text verse-${language}`}
                         key={`${verse.verse_key}-${language}`}
                         lang={language}
-                        dir={language === "ar" || language === "ur" ? "rtl" : "ltr"}
+                        dir={language === "ar" || language === "ur" || language === "fa" ? "rtl" : "ltr"}
                       >
                         {text || (
                           <span className="missing-translation">
@@ -1287,12 +1363,12 @@ export default function Home() {
         <footer className="reader-footer">
           <span>
             {pageMode
-              ? `Mushaf page ${pageNumber} · ${verses.length} verses`
+              ? `Quran page ${pageNumber} · ${verses.length} verses`
               : chapter
                 ? `${chapter.verses_count} verses · ${readingStyle === "book" ? "Book page" : "Ayah by ayah"}`
                 : "Quran reader"}
           </span>
-          <span>Translations: {visibleLanguages.filter((language) => language !== "ar").map((language) => translatedNames[language]).join(" · ") || "—"}</span>
+          <span>Translations: {visibleLanguages.filter((language): language is TranslationLanguage => language !== "ar").map((language) => translationNames[language]).join(" · ") || "—"}</span>
         </footer>
       </section>
 
