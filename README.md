@@ -2,7 +2,11 @@
 
 A responsive Quran reader built with Next.js. Read in one language, pair Arabic with a translation, or display Arabic, English, Nepali, and Urdu together.
 
-On first visit, choose a preferred language, verse display, and text style. Use **Ayah by ayah** for the separated verse view or **Book page** for continuous prose with visible verse markers. The reader remembers these preferences in the current browser; they can also be changed from the reader controls.
+On first visit, choose a preferred language, verse display, text style, and navigation style. **Mushaf pages** provide previous/next controls below the verses and direct page-number entry above them, across the 604 numbered Quran pages; **Chapter view** keeps the full chapter available for continuous scrolling. Both navigation styles support **Ayah by ayah** or **Book page** text layouts. The book layout uses a long-form English serif font, natural line alignment, and more space around verse markers for extended reading. In Mushaf page view, a back-to-top control appears while scrolling. The reader also offers text-size, line-spacing, and paper/sepia/night color controls, plus chapter-name and Quran-wide word or phrase search in the currently displayed languages. These preferences are stored only in the current browser and can be changed from the reader controls.
+
+Use **Download Quran PDF** to prepare the complete Quran in one language, Arabic plus one translation, or all four languages. The print-ready page opens the browser print dialog; choose **Save as PDF** to download. Each PDF identifies the Quran.com API and the selected translation sources. Check the API provider’s and translation publishers’ current terms before redistributing a saved copy.
+
+The optional reading guide explains chapter/verse labels and how to distinguish the Arabic text from translations. It is informational rather than religious commentary; translations are labeled with their respective sources below the reader. Search requests are sent to the Quran.com API and are not stored by this application.
 
 ## Run locally
 

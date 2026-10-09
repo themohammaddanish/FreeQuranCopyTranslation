@@ -52,25 +52,24 @@ export async function getChapters(): Promise<Chapter[]> {
   });
 }
 
-export async function getChapterVerses(chapterId: number): Promise<Verse[]> {
+async function getVerses(path: string): Promise<Verse[]> {
   const query = new URLSearchParams({
     language: "en",
     translations: TRANSLATION_IDS.join(","),
     fields: "text_uthmani",
     per_page: "300",
   });
-  const response = await fetch(
-    `${QURAN_API_URL}/verses/by_chapter/${chapterId}?${query.toString()}`,
-    { next: { revalidate: 86_400 } },
-  );
+  const response = await fetch(`${QURAN_API_URL}${path}?${query.toString()}`, {
+    next: { revalidate: 86_400 },
+  });
 
   if (!response.ok) {
-    throw new Error(`Quran.com returned ${response.status} while loading chapter ${chapterId}.`);
+    throw new Error(`Quran.com returned ${response.status} while loading Quran verses.`);
   }
 
   const payload: unknown = await response.json();
   if (!isRecord(payload) || !Array.isArray(payload.verses)) {
-    throw new Error(`Quran.com returned an invalid verses response for chapter ${chapterId}.`);
+    throw new Error("Quran.com returned an invalid verses response.");
   }
 
   return payload.verses.map((verse, index) => {
@@ -78,6 +77,7 @@ export async function getChapterVerses(chapterId: number): Promise<Verse[]> {
       !isRecord(verse) ||
       typeof verse.verse_key !== "string" ||
       typeof verse.verse_number !== "number" ||
+      typeof verse.page_number !== "number" ||
       typeof verse.text_uthmani !== "string" ||
       !Array.isArray(verse.translations)
     ) {
@@ -103,8 +103,41 @@ export async function getChapterVerses(chapterId: number): Promise<Verse[]> {
     return {
       verse_key: verse.verse_key,
       verse_number: verse.verse_number,
+      page_number: verse.page_number,
       text_uthmani: verse.text_uthmani,
       translations,
     };
   });
+}
+
+export async function getChapterVerses(chapterId: number): Promise<Verse[]> {
+  return getVerses(`/verses/by_chapter/${chapterId}`);
+}
+
+export async function getPageVerses(pageNumber: number): Promise<Verse[]> {
+  return getVerses(`/verses/by_page/${pageNumber}`);
+}
+
+export async function getAllVerses(): Promise<Verse[]> {
+  const chapters = await getChapters();
+  const verses: Verse[] = [];
+  const batchSize = 8;
+
+  for (let index = 0; index < chapters.length; index += batchSize) {
+    const batch = chapters.slice(index, index + batchSize);
+    const batchVerses = await Promise.all(batch.map((chapter) => getChapterVerses(chapter.id)));
+    batch.forEach((chapter, batchIndex) => {
+      if (batchVerses[batchIndex].length !== chapter.verses_count) {
+        throw new Error(`Quran.com returned an incomplete verse list for chapter ${chapter.id}.`);
+      }
+      verses.push(...batchVerses[batchIndex]);
+    });
+  }
+
+  const expectedVerseCount = chapters.reduce((total, chapter) => total + chapter.verses_count, 0);
+  if (verses.length !== expectedVerseCount) {
+    throw new Error(`Quran.com returned ${verses.length} verses; expected ${expectedVerseCount}.`);
+  }
+
+  return verses;
 }
